@@ -4,6 +4,8 @@ use libmodbus_sys as ffi;
 use std::ffi::CString;
 use std::str;
 
+use gpio::GpioOut;
+
 #[derive(Debug, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum SerialMode {
@@ -64,6 +66,7 @@ pub trait ModbusRTU {
     fn rtu_get_rts(&self) -> Result<RequestToSendMode, Error>;
     fn rtu_set_rts(&mut self, mode: RequestToSendMode) -> Result<(), Error>;
     fn rtu_set_custom_rts(&mut self, _mode: RequestToSendMode) -> Result<i32, Error>;
+    fn set_rts(&mut self, on: i32);
     fn rtu_get_rts_delay(&self) -> Result<i32, Error>;
     fn rtu_set_rts_delay(&mut self, us: i32) -> Result<(), Error>;
 }
@@ -292,6 +295,18 @@ impl ModbusRTU for Modbus {
         }
     }
 
+    fn set_rts(&mut self, on: i32) -> (){
+        let mut gpio_de = gpio::sysfs::SysFsGpioOutput::open(273).unwrap();
+        let mut gpio_re = gpio::sysfs::SysFsGpioOutput::open(272).unwrap();
+        if (on >= 0){
+            gpio_de.set_value(1).expect("couldn't set gpio_de to '1'");
+            gpio_re.set_value(1).expect("couldn't set gpio_re to '1'");
+        }else{
+            gpio_de.set_value(0).expect("couldn't set gpio_de to '0'");
+            gpio_re.set_value(0).expect("couldn't set gpio_re to '0'");
+        }
+    }
+
     /// `rtu_set_custom_rts` - set a function to be used for custom RTS implementation
     ///
     /// The modbus_rtu_set_custom_rts() function shall set a custom function to be called when the RTS pin is to be set
@@ -305,7 +320,15 @@ impl ModbusRTU for Modbus {
     ///
     /// TODO: implement rtu_set_custom_rts()!
     fn rtu_set_custom_rts(&mut self, _mode: RequestToSendMode) -> Result<i32, Error> {
-        unimplemented!()
+        unsafe{
+            match ffi::modbus_rtu_set_custom_rts(self.ctx, self.set_rts){
+                -1 => Err(Error::Rtu {
+                    msg: "rtu_set_custom_rts".to_owned(),
+                    source: ::std::io::Error::last_os_error(),
+                }),
+                ret => Ok(ret),
+            }
+        }
     }
 
     /// `rtu_get_rts_delay` - get the current RTS delay in RTU
