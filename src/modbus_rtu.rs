@@ -66,7 +66,6 @@ pub trait ModbusRTU {
     fn rtu_get_rts(&self) -> Result<RequestToSendMode, Error>;
     fn rtu_set_rts(&mut self, mode: RequestToSendMode) -> Result<(), Error>;
     fn rtu_set_custom_rts(&mut self, _mode: RequestToSendMode) -> Result<i32, Error>;
-    fn set_rts(&mut self, on: i32);
     fn rtu_get_rts_delay(&self) -> Result<i32, Error>;
     fn rtu_set_rts_delay(&mut self, us: i32) -> Result<(), Error>;
 }
@@ -295,17 +294,6 @@ impl ModbusRTU for Modbus {
         }
     }
 
-    fn set_rts(&mut self, on: i32) -> (){
-        let mut gpio_de = gpio::sysfs::SysFsGpioOutput::open(273).unwrap();
-        let mut gpio_re = gpio::sysfs::SysFsGpioOutput::open(272).unwrap();
-        if (on >= 0){
-            gpio_de.set_value(1).expect("couldn't set gpio_de to '1'");
-            gpio_re.set_value(1).expect("couldn't set gpio_re to '1'");
-        }else{
-            gpio_de.set_value(0).expect("couldn't set gpio_de to '0'");
-            gpio_re.set_value(0).expect("couldn't set gpio_re to '0'");
-        }
-    }
 
     /// `rtu_set_custom_rts` - set a function to be used for custom RTS implementation
     ///
@@ -320,13 +308,29 @@ impl ModbusRTU for Modbus {
     ///
     /// TODO: implement rtu_set_custom_rts()!
     fn rtu_set_custom_rts(&mut self, _mode: RequestToSendMode) -> Result<i32, Error> {
+        //I need to distinguish between RtuRtsUp and RtuRtsDown, and now it's for RtuRtsUp."
+        unsafe extern "C" fn custom_rts_callback(_ctx: *mut ffi::modbus_t, on: c_int) {
+            let mut gpio_de = gpio::sysfs::SysFsGpioOutput::open(273).unwrap();
+            let mut gpio_re = gpio::sysfs::SysFsGpioOutput::open(272).unwrap();
+            if on == 1 {
+                gpio_de.set_high().expect("gpio_de set_high error");
+                gpio_re.set_high().expect("gpio_re set_high error");
+            } else {
+                gpio_de.set_low().expect("gpio_de set_low error");
+                gpio_re.set_low().expect("gpio_re set_low error");
+            }
+        }
+
+        let custom_rts_function: Option<unsafe extern "C" fn(*mut ffi::modbus_t, c_int)> = Some(custom_rts_callback);
+        
         unsafe{
-            match ffi::modbus_rtu_set_custom_rts(self.ctx, self.set_rts){
-                -1 => Err(Error::Rtu {
+            let result = ffi::modbus_rtu_set_custom_rts(self.ctx, custom_rts_function);
+            match result {
+                0 => Ok(0),
+                _ => Err(Error::Rtu {
                     msg: "rtu_set_custom_rts".to_owned(),
                     source: ::std::io::Error::last_os_error(),
                 }),
-                ret => Ok(ret),
             }
         }
     }
