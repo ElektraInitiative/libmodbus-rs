@@ -4,7 +4,7 @@ use libmodbus_sys as ffi;
 use std::ffi::CString;
 use std::str;
 
-use gpio::GpioOut;
+use gpio_cdev::{Chip, LineRequestFlags};
 
 #[derive(Debug, PartialEq)]
 #[allow(non_camel_case_types)]
@@ -310,14 +310,18 @@ impl ModbusRTU for Modbus {
     fn rtu_set_custom_rts(&mut self, _mode: RequestToSendMode) -> Result<i32, Error> {
         //I need to distinguish between RtuRtsUp and RtuRtsDown, and now it's for RtuRtsUp."
         unsafe extern "C" fn custom_rts_callback(_ctx: *mut ffi::modbus_t, on: c_int) {
-            let mut gpio_de = gpio::sysfs::SysFsGpioOutput::open(273).unwrap();
-            let mut gpio_re = gpio::sysfs::SysFsGpioOutput::open(272).unwrap();
+            let mut chip = Chip::new("/dev/gpiochip0").expect("Failed to open gpiochip0");
+            let gpio_de = chip.get_line(273).expect("Failed to get line 273");
+            let gpio_de_handler = gpio_de.request(LineRequestFlags::OUTPUT, 0, "set RS-485 de").expect("Failed to get handler for PIN-DE");
+            let gpio_re = chip.get_line(272).expect("Failed to get line 273");
+            let gpio_re_handler = gpio_re.request(LineRequestFlags::OUTPUT, 0, "set RS-485 re").expect("Failed to get handler for PIN-RE");
+
             if on == 1 {
-                gpio_de.set_high().expect("gpio_de set_high error");
-                gpio_re.set_high().expect("gpio_re set_high error");
+                gpio_de_handler.set_value(1).expect("Failed to set PIN-DE to 1");
+                gpio_re_handler.set_value(1).expect("Failed to set PIN-RE to 1");
             } else {
-                gpio_de.set_low().expect("gpio_de set_low error");
-                gpio_re.set_low().expect("gpio_re set_low error");
+                gpio_de_handler.set_value(0).expect("Failed to set PIN-DE to 0");
+                gpio_re_handler.set_value(0).expect("Failed to set PIN-RE to 0");
             }
         }
 
