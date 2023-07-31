@@ -21,6 +21,6 @@ path = "lib.rs"
 libc = "0.2.80"
 
 [build-dependencies]
-bindgen = "0.55.1"
+bindgen = "0.50.0"
 cc = "1.0"
 pkg-config = "0.3.19"
