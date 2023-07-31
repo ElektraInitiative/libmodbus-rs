@@ -4,6 +4,8 @@ use libmodbus_sys as ffi;
 use std::ffi::CString;
 use std::str;
 
+use gpio_cdev::{Chip, LineRequestFlags};
+
 #[derive(Debug, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum SerialMode {
@@ -292,6 +294,7 @@ impl ModbusRTU for Modbus {
         }
     }
 
+
     /// `rtu_set_custom_rts` - set a function to be used for custom RTS implementation
     ///
     /// The modbus_rtu_set_custom_rts() function shall set a custom function to be called when the RTS pin is to be set
@@ -305,7 +308,35 @@ impl ModbusRTU for Modbus {
     ///
     /// TODO: implement rtu_set_custom_rts()!
     fn rtu_set_custom_rts(&mut self, _mode: RequestToSendMode) -> Result<i32, Error> {
-        unimplemented!()
+        //I need to distinguish between RtuRtsUp and RtuRtsDown, and now it's for RtuRtsUp."
+        unsafe extern "C" fn custom_rts_callback(_ctx: *mut ffi::modbus_t, on: c_int) {
+            let mut chip = Chip::new("/dev/gpiochip0").expect("Failed to open gpiochip0");
+            let gpio_de = chip.get_line(273).expect("Failed to get line 273");
+            let gpio_de_handler = gpio_de.request(LineRequestFlags::OUTPUT, 0, "set RS-485 de").expect("Failed to get handler for PIN-DE");
+            let gpio_re = chip.get_line(272).expect("Failed to get line 273");
+            let gpio_re_handler = gpio_re.request(LineRequestFlags::OUTPUT, 0, "set RS-485 re").expect("Failed to get handler for PIN-RE");
+
+            if on == 1 {
+                gpio_de_handler.set_value(1).expect("Failed to set PIN-DE to 1");
+                gpio_re_handler.set_value(1).expect("Failed to set PIN-RE to 1");
+            } else {
+                gpio_de_handler.set_value(0).expect("Failed to set PIN-DE to 0");
+                gpio_re_handler.set_value(0).expect("Failed to set PIN-RE to 0");
+            }
+        }
+
+        let custom_rts_function: Option<unsafe extern "C" fn(*mut ffi::modbus_t, c_int)> = Some(custom_rts_callback);
+        
+        unsafe{
+            let result = ffi::modbus_rtu_set_custom_rts(self.ctx, custom_rts_function);
+            match result {
+                0 => Ok(0),
+                _ => Err(Error::Rtu {
+                    msg: "rtu_set_custom_rts".to_owned(),
+                    source: ::std::io::Error::last_os_error(),
+                }),
+            }
+        }
     }
 
     /// `rtu_get_rts_delay` - get the current RTS delay in RTU
